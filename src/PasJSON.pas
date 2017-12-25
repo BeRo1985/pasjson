@@ -1,7 +1,7 @@
 (******************************************************************************
  *                                 PasJSON                                    *
  ******************************************************************************
- *                          Version 2017-12-26-00-06                          *
+ *                          Version 2017-12-26-00-56                          *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -552,6 +552,18 @@ type PPPasJSONInt8=^PPasJSONInt8;
      PPasJSONModeFlags=^TPasJSONModeFlag;
      TPasJSONModeFlags=set of TPasJSONModeFlag;
 
+     PPasJSONEncoding=^TPasJSONEncoding;
+     TPasJSONEncoding=
+      (
+       AutomaticDetection,
+       Latin1,
+       UTF8,
+       UTF16LE,
+       UTF16BE,
+       UTF32LE,
+       UTF32BE
+      );
+
      TPasJSON=class
       public
        // Simplified JSON notation as in http://bitsquid.blogspot.de/2009/10/simplified-json-notation.html
@@ -563,7 +575,8 @@ type PPPasJSONInt8=^PPasJSONInt8;
                                                         TPasJSONModeFlag.MultilineStrings];
       public
        class function StringQuote(const aString:TPasJSONUTF8String):TPasJSONRawByteString; static;
-       class function Parse(const aSource:TPasJSONRawByteString;const aModeFlags:TPasJSONModeFlags=[TPasJSONModeFlag.Comments]):TPasJSONItem; static;
+       class function Parse(const aSource:TPasJSONRawByteString;const aModeFlags:TPasJSONModeFlags=[TPasJSONModeFlag.Comments];const aEncoding:TPasJSONEncoding=TPasJSONEncoding.AutomaticDetection):TPasJSONItem; static; overload;
+       class function Parse(const aStream:TStream;const aModeFlags:TPasJSONModeFlags=[TPasJSONModeFlag.Comments];const aEncoding:TPasJSONEncoding=TPasJSONEncoding.AutomaticDetection):TPasJSONItem; static; overload;
        class function Stringify(const aJSONItem:TPasJSONItem;const aFormatting:boolean=false;const aModeFlags:TPasJSONModeFlags=[];const aLevel:TPasJSONInt32=0):TPasJSONRawByteString; static;
        class function GetNumber(const aItem:TPasJSONItem;const aDefault:TPasJSONDouble=0.0):TPasJSONDouble; static;
        class function GetString(const aItem:TPasJSONItem;const aDefault:TPasJSONUTF8String=''):TPasJSONUTF8String; static;
@@ -1089,22 +1102,21 @@ begin
  result:=result+'"';
 end;
 
-class function TPasJSON.Parse(const aSource:TPasJSONRawByteString;const aModeFlags:TPasJSONModeFlags=[TPasJSONModeFlag.Comments]):TPasJSONItem;
-type TEncoding=(Latin1,UTF8,UTF16LE,UTF16BE,UTF32LE,UTF32BE);
+class function TPasJSON.Parse(const aSource:TPasJSONRawByteString;const aModeFlags:TPasJSONModeFlags=[TPasJSONModeFlag.Comments];const aEncoding:TPasJSONEncoding=TPasJSONEncoding.AutomaticDetection):TPasJSONItem;
 var Position:TPasJSONInt32;
     CurrentChar:TPasJSONUInt32;
     CharEOF:boolean;
-    Encoding:TEncoding;
+    Encoding:TPasJSONEncoding;
  procedure NextChar;
- const UTF16Shifts:array[TEncoding.UTF16LE..TEncoding.UTF16BE,0..1] of TPasJSONInt32=((0,8),(8,0));
+ const UTF16Shifts:array[TPasJSONEncoding.UTF16LE..TPasJSONEncoding.UTF16BE,0..1] of TPasJSONInt32=((0,8),(8,0));
  var Temp:TPasJSONUInt32;
  begin
   if Position<=length(aSource) then begin
    case Encoding of
-    TEncoding.UTF8:begin
+    TPasJSONEncoding.UTF8:begin
      CurrentChar:=GetNextUTF8Char(PAnsiChar(@aSource[1]),Length(aSource),Position);
     end;
-    TEncoding.UTF16LE,TEncoding.UTF16BE:begin
+    TPasJSONEncoding.UTF16LE,TPasJSONEncoding.UTF16BE:begin
      if (Position+1)<=length(aSource) then begin
       CurrentChar:=(TPasJSONUInt32(byte(AnsiChar(aSource[Position]))) shl UTF16Shifts[Encoding,0]) or (TPasJSONUInt32(byte(AnsiChar(aSource[Position+1]))) shl UTF16Shifts[Encoding,1]);
       inc(Position,2);
@@ -1125,7 +1137,7 @@ var Position:TPasJSONInt32;
       CharEOF:=true;
      end;
     end;
-    TEncoding.UTF32LE:begin
+    TPasJSONEncoding.UTF32LE:begin
      if (Position+3)<=length(aSource) then begin
       CurrentChar:=(TPasJSONUInt32(byte(AnsiChar(aSource[Position]))) shl 0) or
                    (TPasJSONUInt32(byte(AnsiChar(aSource[Position+1]))) shl 8) or
@@ -1138,7 +1150,7 @@ var Position:TPasJSONInt32;
       CharEOF:=true;
      end;
     end;
-    TEncoding.UTF32BE:begin
+    TPasJSONEncoding.UTF32BE:begin
      if (Position+3)<=length(aSource) then begin
       CurrentChar:=(TPasJSONUInt32(byte(AnsiChar(aSource[Position]))) shl 24) or
                    (TPasJSONUInt32(byte(AnsiChar(aSource[Position+1]))) shl 16) or
@@ -1624,24 +1636,29 @@ begin
  result:=nil;
  try
   CharEOF:=false;
-  if (length(aSource)>=3) and ((byte(ansichar(aSource[1]))=$ef) and (byte(ansichar(aSource[2]))=$bb) and (byte(ansichar(aSource[3]))=$bf)) then begin
-   Position:=4;
-   Encoding:=TEncoding.UTF8;
-  end else if (length(aSource)>=4) and ((byte(ansichar(aSource[1]))=$ff) and (byte(ansichar(aSource[2]))=$fe) and (byte(ansichar(aSource[3]))=$00) and (byte(ansichar(aSource[4]))=$00)) then begin
-   Position:=5;
-   Encoding:=TEncoding.UTF32LE;
-  end else if (length(aSource)>=4) and ((byte(ansichar(aSource[1]))=$00) and (byte(ansichar(aSource[2]))=$00) and (byte(ansichar(aSource[3]))=$fe) and (byte(ansichar(aSource[4]))=$ff)) then begin
-   Position:=5;
-   Encoding:=TEncoding.UTF32BE;
-  end else if (length(aSource)>=2) and ((byte(ansichar(aSource[1]))=$ff) and (byte(ansichar(aSource[2]))=$fe)) then begin
-   Position:=3;
-   Encoding:=TEncoding.UTF16LE;
-  end else if (length(aSource)>=2) and ((byte(ansichar(aSource[1]))=$fe) and (byte(ansichar(aSource[2]))=$ff)) then begin
-   Position:=3;
-   Encoding:=TEncoding.UTF16BE;
+  if aEncoding=TPasJSONEncoding.AutomaticDetection then begin
+   if (length(aSource)>=3) and ((byte(ansichar(aSource[1]))=$ef) and (byte(ansichar(aSource[2]))=$bb) and (byte(ansichar(aSource[3]))=$bf)) then begin
+    Position:=4;
+    Encoding:=TPasJSONEncoding.UTF8;
+   end else if (length(aSource)>=4) and ((byte(ansichar(aSource[1]))=$ff) and (byte(ansichar(aSource[2]))=$fe) and (byte(ansichar(aSource[3]))=$00) and (byte(ansichar(aSource[4]))=$00)) then begin
+    Position:=5;
+    Encoding:=TPasJSONEncoding.UTF32LE;
+   end else if (length(aSource)>=4) and ((byte(ansichar(aSource[1]))=$00) and (byte(ansichar(aSource[2]))=$00) and (byte(ansichar(aSource[3]))=$fe) and (byte(ansichar(aSource[4]))=$ff)) then begin
+    Position:=5;
+    Encoding:=TPasJSONEncoding.UTF32BE;
+   end else if (length(aSource)>=2) and ((byte(ansichar(aSource[1]))=$ff) and (byte(ansichar(aSource[2]))=$fe)) then begin
+    Position:=3;
+    Encoding:=TPasJSONEncoding.UTF16LE;
+   end else if (length(aSource)>=2) and ((byte(ansichar(aSource[1]))=$fe) and (byte(ansichar(aSource[2]))=$ff)) then begin
+    Position:=3;
+    Encoding:=TPasJSONEncoding.UTF16BE;
+   end else begin
+    Position:=1;
+    Encoding:=TPasJSONEncoding.Latin1;
+   end;
   end else begin
    Position:=1;
-   Encoding:=TEncoding.Latin1;
+   Encoding:=aEncoding;
   end;
   NextChar;
   result:=ParseValue(TPasJSONModeFlag.ImplicitRootObject in aModeFlags);
@@ -1652,6 +1669,22 @@ begin
  except
   FreeAndNil(result);
   raise;
+ end;
+end;
+
+class function TPasJSON.Parse(const aStream:TStream;const aModeFlags:TPasJSONModeFlags=[TPasJSONModeFlag.Comments];const aEncoding:TPasJSONEncoding=TPasJSONEncoding.AutomaticDetection):TPasJSONItem;
+var StringValue:TPasJSONRawByteString;
+begin
+ StringValue:='';
+ try
+  SetLength(StringValue,aStream.Size);
+  if aStream.Seek(0,soBeginning)<>0 then begin
+   raise EInOutError.Create('Stream seek error');
+  end;
+  aStream.ReadBuffer(StringValue[1],aStream.Size);
+  result:=TPasJSON.Parse(StringValue,aModeFlags,aEncoding);
+ finally
+  StringValue:='';
  end;
 end;
 
