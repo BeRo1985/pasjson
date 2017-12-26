@@ -1,7 +1,7 @@
 (******************************************************************************
  *                                 PasJSON                                    *
  ******************************************************************************
- *                          Version 2017-12-26-01-33                          *
+ *                          Version 2017-12-26-02-17                          *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -544,8 +544,6 @@ type PPPasJSONInt8=^PPasJSONInt8;
        property Properties[const Key:TPasJSONUTF8String]:TPasJSONItem read GetProperty write SetProperty; default;
      end;
 
-     { TPasJSONItemArray }
-
      TPasJSONItemArray=class(TPasJSONItem)
       public
        type PPasJSONItemArrayEnumerator=^TPasJSONItemArrayEnumerator;
@@ -616,6 +614,7 @@ type PPPasJSONInt8=^PPasJSONInt8;
        class function Parse(const aStream:TStream;const aModeFlags:TPasJSONModeFlags=[TPasJSONModeFlag.Comments];const aEncoding:TPasJSONEncoding=TPasJSONEncoding.AutomaticDetection):TPasJSONItem; static; overload;
        class function Stringify(const aJSONItem:TPasJSONItem;const aFormatting:boolean=false;const aModeFlags:TPasJSONModeFlags=[];const aLevel:TPasJSONInt32=0):TPasJSONRawByteString; static;
        class function GetNumber(const aItem:TPasJSONItem;const aDefault:TPasJSONDouble=0.0):TPasJSONDouble; static;
+       class function GetInt64(const aItem:TPasJSONItem;const aDefault:TPasJSONInt64=0):TPasJSONInt64; static;
        class function GetString(const aItem:TPasJSONItem;const aDefault:TPasJSONUTF8String=''):TPasJSONUTF8String; static;
        class function GetBoolean(const aItem:TPasJSONItem;const aDefault:boolean=false):boolean; static;
        class function LoadBinaryFromStream(const aStream:TStream):TPasJSONItem; static;
@@ -1943,9 +1942,31 @@ begin
 end;
 
 class function TPasJSON.GetNumber(const aItem:TPasJSONItem;const aDefault:TPasJSONDouble=0.0):TPasJSONDouble;
+var OK:TPasDblStrUtilsBoolean;
 begin
  if assigned(aItem) and (aItem is TPasJSONItemNumber) then begin
   result:=TPasJSONItemNumber(aItem).Value;
+ end else if assigned(aItem) and (aItem is TPasJSONItemString) then begin
+  OK:=false;
+  result:=ConvertStringToDouble(TPasJSONItemString(aItem).Value,rmNearest,@OK,-1);
+  if not OK then begin
+   result:=aDefault;
+  end;
+ end else if assigned(aItem) and (aItem is TPasJSONItemBoolean) then begin
+  result:=ord(TPasJSONItemBoolean(aItem).Value) and 1;
+ end else begin
+  result:=aDefault;
+ end;
+end;
+
+class function TPasJSON.GetInt64(const aItem:TPasJSONItem;const aDefault:TPasJSONInt64=0):TPasJSONInt64; static;
+begin
+ if assigned(aItem) and (aItem is TPasJSONItemNumber) then begin
+  result:=Trunc(TPasJSONItemNumber(aItem).Value);
+ end else if assigned(aItem) and (aItem is TPasJSONItemString) then begin
+  result:=StrToInt64Def(TPasJSONItemString(aItem).Value,aDefault);
+ end else if assigned(aItem) and (aItem is TPasJSONItemBoolean) then begin
+  result:=ord(TPasJSONItemBoolean(aItem).Value) and 1;
  end else begin
   result:=aDefault;
  end;
@@ -1955,6 +1976,14 @@ class function TPasJSON.GetString(const aItem:TPasJSONItem;const aDefault:TPasJS
 begin
  if assigned(aItem) and (aItem is TPasJSONItemString) then begin
   result:=TPasJSONItemString(aItem).Value;
+ end else if assigned(aItem) and (aItem is TPasJSONItemNumber) then begin
+  result:=ConvertDoubleToString(TPasJSONItemNumber(aItem).Value,omStandard);
+ end else if assigned(aItem) and (aItem is TPasJSONItemBoolean) then begin
+  if TPasJSONItemBoolean(aItem).Value then begin
+   result:='true';
+  end else begin
+   result:='false';
+  end;
  end else begin
   result:=aDefault;
  end;
@@ -1964,6 +1993,11 @@ class function TPasJSON.GetBoolean(const aItem:TPasJSONItem;const aDefault:boole
 begin
  if assigned(aItem) and (aItem is TPasJSONItemBoolean) then begin
   result:=TPasJSONItemBoolean(aItem).Value;
+ end else if assigned(aItem) and (aItem is TPasJSONItemNumber) then begin
+  result:=TPasJSONItemNumber(aItem).Value<>0.0;
+ end else if assigned(aItem) and (aItem is TPasJSONItemString) then begin
+  result:=(LowerCase(TPasJSONItemString(aItem).Value)<>'false') and
+          (TPasJSONItemString(aItem).Value<>'0');
  end else begin
   result:=aDefault;
  end;
