@@ -1,7 +1,7 @@
 (******************************************************************************
  *                                 PasJSON                                    *
  ******************************************************************************
- *                          Version 2017-12-26-02-17                          *
+ *                          Version 2017-12-28-21-24                          *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -610,8 +610,8 @@ type PPPasJSONInt8=^PPasJSONInt8;
                                                         TPasJSONModeFlag.MultilineStrings];
       public
        class function StringQuote(const aString:TPasJSONUTF8String):TPasJSONRawByteString; static;
-       class function Parse(const aSource:TPasJSONRawByteString;const aModeFlags:TPasJSONModeFlags=[TPasJSONModeFlag.Comments];const aEncoding:TPasJSONEncoding=TPasJSONEncoding.AutomaticDetection):TPasJSONItem; static; overload;
-       class function Parse(const aStream:TStream;const aModeFlags:TPasJSONModeFlags=[TPasJSONModeFlag.Comments];const aEncoding:TPasJSONEncoding=TPasJSONEncoding.AutomaticDetection):TPasJSONItem; static; overload;
+       class function Parse(const aSource:TPasJSONRawByteString;const aModeFlags:TPasJSONModeFlags=[TPasJSONModeFlag.Comments];const aEncoding:TPasJSONEncoding=TPasJSONEncoding.AutomaticDetection):TPasJSONItem; overload; static;
+       class function Parse(const aStream:TStream;const aModeFlags:TPasJSONModeFlags=[TPasJSONModeFlag.Comments];const aEncoding:TPasJSONEncoding=TPasJSONEncoding.AutomaticDetection):TPasJSONItem; overload; static;
        class function Stringify(const aJSONItem:TPasJSONItem;const aFormatting:boolean=false;const aModeFlags:TPasJSONModeFlags=[];const aLevel:TPasJSONInt32=0):TPasJSONRawByteString; static;
        class function GetNumber(const aItem:TPasJSONItem;const aDefault:TPasJSONDouble=0.0):TPasJSONDouble; static;
        class function GetInt64(const aItem:TPasJSONItem;const aDefault:TPasJSONInt64=0):TPasJSONInt64; static;
@@ -1959,7 +1959,7 @@ begin
  end;
 end;
 
-class function TPasJSON.GetInt64(const aItem:TPasJSONItem;const aDefault:TPasJSONInt64=0):TPasJSONInt64; static;
+class function TPasJSON.GetInt64(const aItem:TPasJSONItem;const aDefault:TPasJSONInt64=0):TPasJSONInt64;
 begin
  if assigned(aItem) and (aItem is TPasJSONItemNumber) then begin
   result:=Trunc(TPasJSONItemNumber(aItem).Value);
