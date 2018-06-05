@@ -1,7 +1,7 @@
 (******************************************************************************
  *                                 PasJSON                                    *
  ******************************************************************************
- *                          Version 2017-12-28-21-24                          *
+ *                          Version 2018-06-05-16-18                          *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1840,11 +1840,25 @@ begin
     result:='false';
    end;
   end else if aJSONItem is TPasJSONItemNumber then begin
-   IntegerValue:=trunc(TPasJSONItemNumber(aJSONItem).Value);
-   if TPasJSONItemNumber(aJSONItem).Value=IntegerValue then begin
-    Str(IntegerValue,result);
+   if IsInfinite(TPasJSONItemNumber(aJSONItem).Value) then begin
+    if (TPasJSONUInt64(Pointer(@TPasJSONItemNumber(aJSONItem).Value)^) shr 63)<>0 then begin
+     result:=TPasJSON.StringQuote('-Infinity');
+    end else begin
+     result:=TPasJSON.StringQuote('Infinity');
+    end;
+   end else if IsNaN(TPasJSONItemNumber(aJSONItem).Value) then begin
+    if (TPasJSONUInt64(Pointer(@TPasJSONItemNumber(aJSONItem).Value)^) shr 63)<>0 then begin
+     result:=TPasJSON.StringQuote('-NaN');
+    end else begin
+     result:=TPasJSON.StringQuote('NaN');
+    end;
    end else begin
-    result:=ConvertDoubleToString(TPasJSONItemNumber(aJSONItem).Value,omStandard,0);
+    IntegerValue:=trunc(TPasJSONItemNumber(aJSONItem).Value);
+    if TPasJSONItemNumber(aJSONItem).Value=IntegerValue then begin
+     Str(IntegerValue,result);
+    end else begin
+     result:=ConvertDoubleToString(TPasJSONItemNumber(aJSONItem).Value,omStandard,0);
+    end;
    end;
   end else if aJSONItem is TPasJSONItemString then begin
    result:=TPasJSON.StringQuote(TPasJSONItemString(aJSONItem).Value);
