@@ -1033,7 +1033,7 @@ begin
  if not (assigned(aWith) and (aWith is TPasJSONItemObject)) then begin
   raise EPasJSONMergeError.Create('Incompatible data type');
  end;
- for Index:=0 to TPasJSONItemObject(aWith).Count do begin
+ for Index:=0 to TPasJSONItemObject(aWith).Count-1 do begin
   SrcProperty:=TPasJSONItemObject(aWith).fProperties[Index];
   if assigned(SrcProperty.Value) then begin
    KeyIndex:=GetKeyIndex(SrcProperty.Key);
