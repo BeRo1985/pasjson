@@ -1,7 +1,7 @@
 (******************************************************************************
  *                                 PasJSON                                    *
  ******************************************************************************
- *                          Version 2018-12-04-02-02                          *
+ *                          Version 2018-12-04-02-58                          *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -540,10 +540,11 @@ type PPPasJSONInt8=^PPasJSONInt8;
        constructor Create;
        destructor Destroy; override;
        function GetEnumerator:TPasJSONItemObjectEnumerator; inline;
-       procedure Merge(const aWith:TPasJSONItem;const aFlags:TPasJSONMergeFlags=[]); override;
+       procedure Clear;
        procedure Add(const aKey:TPasJSONUTF8String;const aValue:TPasJSONItem);
        procedure Delete(const aIndex:TPasJSONSizeInt); overload;
        procedure Delete(const aKey:TPasJSONUTF8String); overload;
+       procedure Merge(const aWith:TPasJSONItem;const aFlags:TPasJSONMergeFlags=[]); override;
        property Count:TPasJSONSizeInt read fCount;
        property Indices[const Key:TPasJSONUTF8String]:TPasJSONInt32 read GetKeyIndex;
        property Keys[const Index:TPasJSONSizeInt]:TPasJSONUTF8String read GetKey write SetKey;
@@ -573,9 +574,10 @@ type PPPasJSONInt8=^PPasJSONInt8;
        constructor Create;
        destructor Destroy; override;
        function GetEnumerator:TPasJSONItemArrayEnumerator; inline;
-       procedure Merge(const aWith:TPasJSONItem;const aFlags:TPasJSONMergeFlags=[]); override;
+       procedure Clear;
        procedure Add(const aValue:TPasJSONItem);
        procedure Delete(const aIndex:TPasJSONSizeInt);
+       procedure Merge(const aWith:TPasJSONItem;const aFlags:TPasJSONMergeFlags=[]); override;
        property Count:TPasJSONInt32 read fCount;
        property Items[const Index:TPasJSONInt32]:TPasJSONItem read GetValue write SetValue; default;
      end;
@@ -1004,6 +1006,16 @@ begin
  result:=TPasJSONItemObject.TPasJSONItemObjectEnumerator.Create(self);
 end;
 
+procedure TPasJSONItemObject.Clear;
+var Index:TPasJSONInt32;
+begin
+ for Index:=0 to fCount-1 do begin
+  FreeAndNil(fProperties[Index]);
+ end;
+ SetLength(fProperties,0);
+ fCount:=0;
+end;
+
 procedure TPasJSONItemObject.Add(const aKey:TPasJSONUTF8String;const aValue:TPasJSONItem);
 var Index:TPasJSONSizeInt;
     ObjectProperty:TPasJSONItemObjectProperty;
@@ -1046,16 +1058,18 @@ begin
   if assigned(SrcProperty.Value) then begin
    KeyIndex:=GetKeyIndex(SrcProperty.Key);
    if KeyIndex>=0 then begin
-    OurProperty:=@fProperties[KeyIndex];
-    if assigned(OurProperty.Value) then begin
-     if (TPasJSONMergeFlag.ForceObjectPropertyValueDestinationType in aFlags) and
-        (OurProperty.Value.ClassType<>SrcProperty.Value.ClassType) then begin
+    OurProperty:=fProperties[KeyIndex];
+    if (TPasJSONMergeFlag.ForceObjectPropertyValueDestinationType in aFlags) and
+       ((not assigned(OurProperty.Value)) or
+        (assigned(OurProperty.Value) and
+         (OurProperty.Value.ClassType<>SrcProperty.Value.ClassType))) then begin
+     if assigned(OurProperty.Value) then begin
       OurProperty.Value.Free;
-      OurProperty.Value:=TPasJSONItem(SrcProperty.Value.ClassType.Create);
      end;
-     if OurProperty.Value.ClassType=SrcProperty.Value.ClassType then begin
-      OurProperty.Value.Merge(SrcProperty.Value,aFlags);
-     end;
+     OurProperty.Value:=TPasJSONItem(SrcProperty.Value.ClassType.Create);
+    end;
+    if assigned(OurProperty.Value) and (OurProperty.Value.ClassType=SrcProperty.Value.ClassType) then begin
+     OurProperty.Value.Merge(SrcProperty.Value,aFlags);
     end;
    end else begin
     NewItem:=nil;
@@ -1125,6 +1139,16 @@ end;
 function TPasJSONItemArray.GetEnumerator:TPasJSONItemArray.TPasJSONItemArrayEnumerator;
 begin
  result:=TPasJSONItemArray.TPasJSONItemArrayEnumerator.Create(self);
+end;
+
+procedure TPasJSONItemArray.Clear;
+var Index:TPasJSONInt32;
+begin
+ for Index:=0 to fCount-1 do begin
+  FreeAndNil(fItems[Index]);
+ end;
+ SetLength(fItems,0);
+ fCount:=0;
 end;
 
 procedure TPasJSONItemArray.Add(const aValue:TPasJSONItem);
