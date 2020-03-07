@@ -2019,7 +2019,7 @@ begin
  end;
 end;
 
-class procedure TPasJSON.StringifyToStream(const aStream:TStream;const aJSONItem:TPasJSONItem;const aFormatting:boolean=false;const aModeFlags:TPasJSONModeFlags=[];const aLevel:TPasJSONInt32=0); static;
+class procedure TPasJSON.StringifyToStream(const aStream:TStream;const aJSONItem:TPasJSONItem;const aFormatting:boolean=false;const aModeFlags:TPasJSONModeFlags=[];const aLevel:TPasJSONInt32=0);
 var StringValue:TPasJSONRawByteString;
 begin
  StringValue:=Stringify(aJSONItem,aFormatting,aModeFlags,aLevel);
