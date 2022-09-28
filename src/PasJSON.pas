@@ -1,12 +1,12 @@
 (******************************************************************************
  *                                 PasJSON                                    *
  ******************************************************************************
- *                          Version 2020-03-04-02-20                          *
+ *                          Version 2022-09-28-03-36                          *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
  *                                                                            *
- * Copyright (C) 2016-2020, Benjamin Rosseaux (benjamin@rosseaux.de)          *
+ * Copyright (C) 2016-2022, Benjamin Rosseaux (benjamin@rosseaux.de)          *
  *                                                                            *
  * This software is provided 'as-is', without any express or implied          *
  * warranty. In no event will the authors be held liable for any damages      *
@@ -626,6 +626,7 @@ type PPPasJSONInt8=^PPasJSONInt8;
        class procedure StringifyToStream(const aStream:TStream;const aJSONItem:TPasJSONItem;const aFormatting:boolean=false;const aModeFlags:TPasJSONModeFlags=[];const aLevel:TPasJSONInt32=0); static;
        class function GetNumber(const aItem:TPasJSONItem;const aDefault:TPasJSONDouble=0.0):TPasJSONDouble; static;
        class function GetInt64(const aItem:TPasJSONItem;const aDefault:TPasJSONInt64=0):TPasJSONInt64; static;
+       class function GetUInt64(const aItem:TPasJSONItem;const aDefault:TPasJSONUInt64=0):TPasJSONUInt64; static;
        class function GetString(const aItem:TPasJSONItem;const aDefault:TPasJSONUTF8String=''):TPasJSONUTF8String; static;
        class function GetBoolean(const aItem:TPasJSONItem;const aDefault:boolean=false):boolean; static;
        class function LoadBinaryFromStream(const aStream:TStream):TPasJSONItem; static;
@@ -2056,6 +2057,19 @@ begin
   result:=Trunc(TPasJSONItemNumber(aItem).Value);
  end else if assigned(aItem) and (aItem is TPasJSONItemString) then begin
   result:=StrToInt64Def(TPasJSONItemString(aItem).Value,aDefault);
+ end else if assigned(aItem) and (aItem is TPasJSONItemBoolean) then begin
+  result:=ord(TPasJSONItemBoolean(aItem).Value) and 1;
+ end else begin
+  result:=aDefault;
+ end;
+end;
+
+class function TPasJSON.GetUInt64(const aItem:TPasJSONItem;const aDefault:TPasJSONUInt64=0):TPasJSONUInt64;
+begin
+ if assigned(aItem) and (aItem is TPasJSONItemNumber) then begin
+  result:=Trunc(TPasJSONItemNumber(aItem).Value);
+ end else if assigned(aItem) and (aItem is TPasJSONItemString) then begin
+  result:=StrToUInt64Def(TPasJSONItemString(aItem).Value,aDefault);
  end else if assigned(aItem) and (aItem is TPasJSONItemBoolean) then begin
   result:=ord(TPasJSONItemBoolean(aItem).Value) and 1;
  end else begin
