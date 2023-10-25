@@ -1972,7 +1972,7 @@ begin
    end else begin
     LevelOffset:=0;
    end;
-   Count:=TPasJSONItemArray(aJSONItem).Count;
+   Count:=TPasJSONItemObject(aJSONItem).Count;
    for Index:=0 to Count-1 do begin
     if aFormatting then begin
      for Ident:=0 to aLevel+LevelOffset do begin
