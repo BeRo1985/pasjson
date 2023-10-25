@@ -1,12 +1,12 @@
 (******************************************************************************
  *                                 PasJSON                                    *
  ******************************************************************************
- *                          Version 2022-09-28-03-36                          *
+ *                          Version 2023-10-26-00-49                          *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
  *                                                                            *
- * Copyright (C) 2016-2022, Benjamin Rosseaux (benjamin@rosseaux.de)          *
+ * Copyright (C) 2016-2023, Benjamin Rosseaux (benjamin@rosseaux.de)          *
  *                                                                            *
  * This software is provided 'as-is', without any express or implied          *
  * warranty. In no event will the authors be held liable for any damages      *
@@ -1891,6 +1891,8 @@ class function TPasJSON.Stringify(const aJSONItem:TPasJSONItem;const aFormatting
    end;
   end;
  end;
+{$undef TPasJSONStringifyRealRecursive}
+{$if defined(TPasJSONStringifyRealRecursive)}
 var Index,Count,Ident,LevelOffset:TPasJSONInt32;
     IntegerValue:Int64;
     Key:TPasJSONUTF8String;
@@ -1920,7 +1922,7 @@ begin
    end else begin
     IntegerValue:=trunc(TPasJSONItemNumber(aJSONItem).Value);
     if TPasJSONItemNumber(aJSONItem).Value=IntegerValue then begin
-     Str(IntegerValue,result);
+     result:=IntToStr(IntegerValue);
     end else begin
      result:=ConvertDoubleToString(TPasJSONItemNumber(aJSONItem).Value,omStandard,0);
     end;
@@ -2019,6 +2021,207 @@ begin
   result:='null';
  end;
 end;
+{$else}
+type TStackItem=record
+      JSONItem:TPasJSONItem;
+      State:TPasJSONSizeInt;
+      Index:TPasJSONSizeInt;
+      Level:TPasJSONSizeInt;
+     end;
+     PStackItem=^TStackItem;
+     TStackItems=array of TStackItem;
+var StackItems:TStackItems;
+    StackItemPointer:TPasJSONSizeInt;
+ procedure Push(const aJSONItem:TPasJSONItem;const aState,aIndex,aLevel:TPasJSONSizeInt);
+ var StackItem:PStackItem;
+ begin
+  inc(StackItemPointer);
+  if StackItemPointer>=length(StackItems) then begin
+   SetLength(StackItems,StackItemPointer+(((StackItemPointer+1) shr 1)+1));
+  end;
+  StackItem:=@StackItems[StackItemPointer-1];
+  StackItem^.JSONItem:=aJSONItem;
+  StackItem^.State:=aState;
+  StackItem^.Index:=aIndex;
+  StackItem^.Level:=aLevel;
+ end;
+var StackItem:TStackItem;
+    LevelOffset,Ident:TPasJSONSizeInt;
+    IntegerValue:Int64;
+    Key:TPasJSONUTF8String;
+begin
+ if assigned(aJSONItem) then begin
+  result:='';
+  StackItems:=nil;
+  try
+   StackItemPointer:=0;
+   Push(aJSONItem,0,0,aLevel);
+   while StackItemPointer>0 do begin
+    dec(StackItemPointer);
+    StackItem:=StackItems[StackItemPointer];
+    case StackItem.State of
+     0:begin
+      if assigned(StackItem.JSONItem) then begin
+       if StackItem.JSONItem is TPasJSONItemNull then begin
+        result:=result+'null';
+       end else if StackItem.JSONItem is TPasJSONItemBoolean then begin
+        if TPasJSONItemBoolean(StackItem.JSONItem).Value then begin
+         result:=result+'true';
+        end else begin
+         result:=result+'false';
+        end;
+       end else if StackItem.JSONItem is TPasJSONItemNumber then begin
+        if IsInfinite(TPasJSONItemNumber(StackItem.JSONItem).Value) then begin
+         if (TPasJSONUInt64(Pointer(@TPasJSONItemNumber(StackItem.JSONItem).Value)^) shr 63)<>0 then begin
+          result:=result+TPasJSON.StringQuote('-Infinity');
+         end else begin
+          result:=result+TPasJSON.StringQuote('Infinity');
+         end;
+        end else if IsNaN(TPasJSONItemNumber(StackItem.JSONItem).Value) then begin
+         if (TPasJSONUInt64(Pointer(@TPasJSONItemNumber(StackItem.JSONItem).Value)^) shr 63)<>0 then begin
+          result:=result+TPasJSON.StringQuote('-NaN');
+         end else begin
+          result:=result+TPasJSON.StringQuote('NaN');
+         end;
+        end else begin
+         IntegerValue:=trunc(TPasJSONItemNumber(StackItem.JSONItem).Value);
+         if TPasJSONItemNumber(StackItem.JSONItem).Value=IntegerValue then begin
+          result:=result+IntToStr(IntegerValue);
+         end else begin
+          result:=result+ConvertDoubleToString(TPasJSONItemNumber(StackItem.JSONItem).Value,omStandard,0);
+         end;
+        end;
+       end else if StackItem.JSONItem is TPasJSONItemString then begin
+        result:=result+TPasJSON.StringQuote(TPasJSONItemString(StackItem.JSONItem).Value);
+       end else if StackItem.JSONItem is TPasJSONItemArray then begin
+        result:=result+'[';
+        if aFormatting then begin
+         result:=result+#13#10;
+        end;
+        Push(StackItem.JSONItem,1,0,StackItem.Level);
+        if TPasJSONModeFlag.ImplicitRootObject in aModeFlags then begin
+         LevelOffset:=-1;
+        end else begin
+         LevelOffset:=0;
+        end;
+        Push(StackItem.JSONItem,2,0,StackItem.Level+LevelOffset);
+       end else if StackItem.JSONItem is TPasJSONItemObject then begin
+        if (not (TPasJSONModeFlag.ImplicitRootObject in aModeFlags)) or (aLevel<>0) then begin
+         result:=result+'{';
+         if aFormatting then begin
+          result:=result+#13#10;
+         end;
+        end else begin
+         result:='';
+        end;
+        Push(StackItem.JSONItem,4,0,StackItem.Level);
+        if TPasJSONModeFlag.ImplicitRootObject in aModeFlags then begin
+         LevelOffset:=-1;
+        end else begin
+         LevelOffset:=0;
+        end;
+        Push(StackItem.JSONItem,5,0,StackItem.Level+LevelOffset);
+       end else begin
+        result:=result+'null';
+       end;
+      end else begin
+       result:=result+'null';
+      end;
+     end;
+     1:begin
+      if aFormatting then begin
+       for Ident:=1 to StackItem.Level do begin
+        result:=result+'  ';
+       end;
+      end;
+      result:=result+']';
+     end;
+     2:begin
+      if StackItem.Index<TPasJSONItemArray(StackItem.JSONItem).Count then begin
+       if aFormatting then begin
+        for Ident:=0 to StackItem.Level do begin
+         result:=result+'  ';
+        end;
+       end;
+       Push(StackItem.JSONItem,3,StackItem.Index,StackItem.Level);
+       Push(TPasJSONItemArray(StackItem.JSONItem).Items[StackItem.Index],0,0,StackItem.Level+1);
+      end;
+     end;
+     3:begin
+      if ((StackItem.Index+1)<TPasJSONItemArray(StackItem.JSONItem).Count) and not (TPasJSONModeFlag.OptionalCommas in aModeFlags) then begin
+       result:=result+',';
+      end;
+      if aFormatting then begin
+        result:=result+#13#10;
+      end;
+      if aFormatting then begin
+       for Ident:=1 to StackItem.Level do begin
+        result:=result+'  ';
+       end;
+      end;
+      if (StackItem.Index+1)<TPasJSONItemArray(StackItem.JSONItem).Count then begin
+       Push(StackItem.JSONItem,2,StackItem.Index+1,StackItem.Level);
+      end;
+     end;
+     4:begin
+      if aFormatting then begin
+       for Ident:=1 to StackItem.Level do begin
+        result:=result+'  ';
+       end;
+      end;
+      if (not (TPasJSONModeFlag.ImplicitRootObject in aModeFlags)) or (StackItem.Level<>0) then begin
+       result:=result+'}';
+      end;
+     end;
+     5:begin
+      if StackItem.Index<TPasJSONItemObject(StackItem.JSONItem).Count then begin
+       if aFormatting then begin
+        for Ident:=0 to StackItem.Level do begin
+         result:=result+'  ';
+        end;
+       end;
+       Key:=TPasJSONItemObject(StackItem.JSONItem).Keys[StackItem.Index];
+       if (TPasJSONModeFlag.UnquotedKeys in aModeFlags) and IsIdentifier(Key) then begin
+        result:=result+TPasJSONRawByteString(Key);
+       end else begin
+        result:=result+TPasJSON.StringQuote(Key);
+       end;
+       if TPasJSONModeFlag.EqualsForColon in aModeFlags then begin
+        if aFormatting then begin
+         result:=result+' ';
+        end;
+        result:=result+'=';
+       end else begin
+        result:=result+':';
+       end;
+       if aFormatting then begin
+        result:=result+' ';
+       end;
+       Push(StackItem.JSONItem,6,StackItem.Index,StackItem.Level);
+       Push(TPasJSONItemObject(StackItem.JSONItem).Values[StackItem.Index],0,0,StackItem.Level+1);
+      end;
+     end;
+     6:begin
+      if ((StackItem.Index+1)<TPasJSONItemObject(StackItem.JSONItem).Count) and not (TPasJSONModeFlag.OptionalCommas in aModeFlags) then begin
+       result:=result+',';
+      end;
+      if aFormatting then begin
+       result:=result+#13#10;
+      end;
+      if (StackItem.Index+1)<TPasJSONItemObject(StackItem.JSONItem).Count then begin
+       Push(StackItem.JSONItem,5,StackItem.Index+1,StackItem.Level);
+      end;
+     end;
+    end;
+   end;
+  finally
+   StackItems:=nil;
+  end;
+ end else begin
+  result:='null';
+ end;
+end;
+{$ifend}
 
 class procedure TPasJSON.StringifyToStream(const aStream:TStream;const aJSONItem:TPasJSONItem;const aFormatting:boolean=false;const aModeFlags:TPasJSONModeFlags=[];const aLevel:TPasJSONInt32=0);
 var StringValue:TPasJSONRawByteString;
