@@ -1,7 +1,7 @@
 (******************************************************************************
  *                                 PasJSON                                    *
  ******************************************************************************
- *                          Version 2025-04-18-23-41                          *
+ *                          Version 2025-04-18-23-56                          *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -2022,11 +2022,7 @@ begin
  end;
 end;
 {$else}
-{$ifdef fpc}
- {$undef UseOwnStringBuilder} // FreePascal's string routines are already fast enough 
-{$else}
- {$define UseOwnStringBuilder} // Delphi's string routines are not fast enough
-{$endif}
+{$define UseOwnStringBuilder} // For better performance
 type TStackItem=record
       JSONItem:TPasJSONItem;
       State:TPasJSONSizeInt;
