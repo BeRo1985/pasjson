@@ -1,7 +1,7 @@
 (******************************************************************************
  *                                 PasJSON                                    *
  ******************************************************************************
- *                          Version 2025-04-18-23-56                          *
+ *                          Version 2025-08-18-17-44                          *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -454,6 +454,7 @@ type PPPasJSONInt8=^PPasJSONInt8;
       public
        constructor Create;
        destructor Destroy; override;
+       function Clone:TPasJSONItem; virtual; abstract;
        procedure Merge(const aWith:TPasJSONItem;const aFlags:TPasJSONMergeFlags=[]); virtual;
      end;
 
@@ -463,6 +464,7 @@ type PPPasJSONInt8=^PPasJSONInt8;
       public
        constructor Create;
        destructor Destroy; override;
+       function Clone:TPasJSONItem; override;
        procedure Merge(const aWith:TPasJSONItem;const aFlags:TPasJSONMergeFlags=[]); override;
      end;
 
@@ -472,6 +474,7 @@ type PPPasJSONInt8=^PPasJSONInt8;
       public
        constructor Create(const AValue:boolean);
        destructor Destroy; override;
+       function Clone:TPasJSONItem; override;
        procedure Merge(const aWith:TPasJSONItem;const aFlags:TPasJSONMergeFlags=[]); override;
       published
        property Value:boolean read fValue write fValue;
@@ -483,6 +486,7 @@ type PPPasJSONInt8=^PPasJSONInt8;
       public
        constructor Create(const AValue:TPasJSONDouble);
        destructor Destroy; override;
+       function Clone:TPasJSONItem; override;
        procedure Merge(const aWith:TPasJSONItem;const aFlags:TPasJSONMergeFlags=[]); override;
       published
        property Value:TPasJSONDouble read fValue write fValue;
@@ -494,6 +498,7 @@ type PPPasJSONInt8=^PPasJSONInt8;
       public
        constructor Create(const AValue:TPasJSONUTF8String);
        destructor Destroy; override;
+       function Clone:TPasJSONItem; override;
        procedure Merge(const aWith:TPasJSONItem;const aFlags:TPasJSONMergeFlags=[]); override;
       published
        property Value:TPasJSONUTF8String read fValue write fValue;
@@ -539,6 +544,7 @@ type PPPasJSONInt8=^PPasJSONInt8;
       public
        constructor Create;
        destructor Destroy; override;
+       function Clone:TPasJSONItem; override;
        function GetEnumerator:TPasJSONItemObjectEnumerator; inline;
        procedure Clear;
        procedure Add(const aKey:TPasJSONUTF8String;const aValue:TPasJSONItem);
@@ -573,6 +579,7 @@ type PPPasJSONInt8=^PPasJSONInt8;
       public
        constructor Create;
        destructor Destroy; override;
+       function Clone:TPasJSONItem; override;
        function GetEnumerator:TPasJSONItemArrayEnumerator; inline;
        procedure Clear;
        procedure Add(const aValue:TPasJSONItem);
@@ -836,6 +843,11 @@ begin
  inherited Destroy;
 end;
 
+function TPasJSONItemNull.Clone:TPasJSONItem;
+begin
+ result:=TPasJSONItemNull.Create;
+end;
+
 procedure TPasJSONItemNull.Merge(const aWith:TPasJSONItem;const aFlags:TPasJSONMergeFlags=[]);
 begin
  if not (assigned(aWith) and (aWith is TPasJSONItemNull)) then begin
@@ -852,6 +864,11 @@ end;
 destructor TPasJSONItemBoolean.Destroy;
 begin
  inherited Destroy;
+end;
+
+function TPasJSONItemBoolean.Clone:TPasJSONItem;
+begin
+ result:=TPasJSONItemBoolean.Create(fValue);
 end;
 
 procedure TPasJSONItemBoolean.Merge(const aWith:TPasJSONItem;const aFlags:TPasJSONMergeFlags=[]);
@@ -873,6 +890,11 @@ begin
  inherited Destroy;
 end;
 
+function TPasJSONItemNumber.Clone:TPasJSONItem;
+begin
+ result:=TPasJSONItemNumber.Create(fValue);
+end;
+
 procedure TPasJSONItemNumber.Merge(const aWith:TPasJSONItem;const aFlags:TPasJSONMergeFlags=[]);
 begin
  if not (assigned(aWith) and (aWith is TPasJSONItemNumber)) then begin
@@ -891,6 +913,11 @@ destructor TPasJSONItemString.Destroy;
 begin
  fValue:='';
  inherited Destroy;
+end;
+
+function TPasJSONItemString.Clone:TPasJSONItem;
+begin
+ result:=TPasJSONItemString.Create(fValue);
 end;
 
 procedure TPasJSONItemString.Merge(const aWith:TPasJSONItem;const aFlags:TPasJSONMergeFlags=[]);
@@ -947,6 +974,17 @@ begin
  end;
  SetLength(fProperties,0);
  inherited Destroy;
+end;
+
+function TPasJSONItemObject.Clone:TPasJSONItem;
+var ClonedObject:TPasJSONItemObject;
+    Index:TPasJSONInt32;
+begin
+ ClonedObject:=TPasJSONItemObject.Create;
+ for Index:=0 to fCount-1 do begin
+  ClonedObject.Add(fProperties[Index].Key,fProperties[Index].Value.Clone);
+ end;
+ result:=ClonedObject;
 end;
 
 function TPasJSONItemObject.GetKeyIndex(const aKey:TPasJSONUTF8String):TPasJSONInt32;
@@ -1120,6 +1158,17 @@ begin
  end;
  SetLength(fItems,0);
  inherited Destroy;
+end;
+
+function TPasJSONItemArray.Clone:TPasJSONItem;
+var ClonedArray:TPasJSONItemArray;
+    Index:TPasJSONInt32;
+begin
+ ClonedArray:=TPasJSONItemArray.Create;
+ for Index:=0 to fCount-1 do begin
+  ClonedArray.Add(fItems[Index].Clone);
+ end;
+ result:=ClonedArray;
 end;
 
 function TPasJSONItemArray.GetValue(const Index:TPasJSONInt32):TPasJSONItem;
