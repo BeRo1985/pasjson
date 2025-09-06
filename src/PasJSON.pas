@@ -1290,8 +1290,8 @@ begin
      $0000..$d7ff,$f000..$fffc:begin
       result:=result+'\u'+HexChars[false,(c shr 12) and $f]+HexChars[false,(c shr 8) and $f]+HexChars[false,(c shr 4) and $f]+HexChars[false,c and $f];
      end;
-     $100000..$10ffff:begin
-      dec(c,$100000);
+     $10000..$10ffff:begin
+      dec(c,$10000);
       t:=(c shr 10) or $d800;
       result:=result+'\u'+HexChars[false,(t shr 12) and $f]+HexChars[false,(t shr 8) and $f]+HexChars[false,(t shr 4) and $f]+HexChars[false,t and $f];
       t:=(c and $3ff) or $dc00;
@@ -1446,10 +1446,35 @@ var Position:TPasJSONInt32;
   var w:TPasJSONUTF16String; // <= because of easy correct handling of UTF16 surrogates (see ECMAScript and JSON specs)
       wl:TPasJSONInt32;
       wc:TPasJSONUInt32;
+   procedure AddChar16(c:TPasJSONUInt32);
+   var cl:TPasJSONInt32;
+   begin
+    if (c>=$10000) and (c<=$10ffff) then begin
+     cl:=2;
+    end else begin
+     cl:=1;
+    end;
+    if (wl+cl)>length(w) then begin
+     SetLength(w,(wl+cl) shl 1);
+    end;
+    if c<=$ffff then begin
+     inc(wl);
+     w[wl]:=TPasJSONUTF16Char(UInt16(c));
+    end else if c<=$10ffff then begin
+     dec(c,$10000);
+     inc(wl);
+     w[wl]:=TPasJSONUTF16Char(UInt16((c shr 10) or $d800));
+     inc(wl);
+     w[wl]:=TPasJSONUTF16Char(UInt16((c and $3ff) or $dc00));
+    end else begin
+     inc(wl);
+     w[wl]:=TPasJSONUTF16Char(UInt16($fffd));
+    end;
+   end;
    procedure AddChar(c:TPasJSONUInt32);
    var cl:TPasJSONInt32;
    begin
-    if (c>=$100000) and (c<=$10ffff) then begin
+    if (c>=$10000) and (c<=$10ffff) then begin
      cl:=2;
     end else begin
      cl:=1;
@@ -1568,7 +1593,7 @@ var Position:TPasJSONInt32;
                end else if (CurrentChar>=ord('A')) and (CurrentChar<=ord('F')) then begin
                 wc:=wc or UInt16((UInt16(CurrentChar)-ord('A'))+$a);
                end;
-               AddChar(wc);
+               AddChar16(wc);
                NextChar;
               end else begin
                JSONError;
