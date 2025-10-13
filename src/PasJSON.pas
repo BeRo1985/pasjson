@@ -1,7 +1,7 @@
 (******************************************************************************
  *                                 PasJSON                                    *
  ******************************************************************************
- *                          Version 2025-08-18-17-44                          *
+ *                          Version 2025-10-13-10-19                          *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -450,12 +450,28 @@ type PPPasJSONInt8=^PPasJSONInt8;
 
      TPasJSONMergeFlags=set of TPasJSONMergeFlag;
 
+     TPasJSONItemType=
+      (
+       Unknown,
+       Null,
+       Boolean_,
+       Number,
+       String_,
+       Object_,
+       Array_
+      );
+     PPasJSONItemType=^TPasJSONItemType;
+
      TPasJSONItem=class
+      private
+       fItemType:TPasJSONItemType;
       public
        constructor Create;
        destructor Destroy; override;
        function Clone:TPasJSONItem; virtual; abstract;
        procedure Merge(const aWith:TPasJSONItem;const aFlags:TPasJSONMergeFlags=[]); virtual;
+      published
+       property ItemType:TPasJSONItemType read fItemType;
      end;
 
      TPasJSONItems=array of TPasJSONItem;
@@ -819,6 +835,7 @@ end;
 constructor TPasJSONItem.Create;
 begin
  inherited Create;
+ fItemType:=TPasJSONItemType.Unknown;
 end;
 
 destructor TPasJSONItem.Destroy;
@@ -836,6 +853,7 @@ end;
 constructor TPasJSONItemNull.Create;
 begin
  inherited Create;
+ fItemType:=TPasJSONItemType.Null;
 end;
 
 destructor TPasJSONItemNull.Destroy;
@@ -858,6 +876,7 @@ end;
 constructor TPasJSONItemBoolean.Create(const AValue:boolean);
 begin
  inherited Create;
+ fItemType:=TPasJSONItemType.Boolean_;
  fValue:=AValue;
 end;
 
@@ -882,6 +901,7 @@ end;
 constructor TPasJSONItemNumber.Create(const AValue:TPasJSONDouble);
 begin
  inherited Create;
+ fItemType:=TPasJSONItemType.Number;
  fValue:=AValue;
 end;
 
@@ -906,6 +926,7 @@ end;
 constructor TPasJSONItemString.Create(const AValue:TPasJSONUTF8String);
 begin
  inherited Create;
+ fItemType:=TPasJSONItemType.String_;
  fValue:=AValue;
 end;
 
@@ -962,6 +983,7 @@ end;
 constructor TPasJSONItemObject.Create;
 begin
  inherited Create;
+ fItemType:=TPasJSONItemType.Object_;
  fProperties:=nil;
  fCount:=0;
 end;
@@ -1146,6 +1168,7 @@ end;
 constructor TPasJSONItemArray.Create;
 begin
  inherited Create;
+ fItemType:=TPasJSONItemType.Array_;
  fItems:=nil;
  fCount:=0;
 end;
