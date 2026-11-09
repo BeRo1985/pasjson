@@ -1098,7 +1098,10 @@ begin
  if (aIndex>=0) and (aIndex<fCount) then begin
   FreeAndNil(fProperties[aIndex]);
   dec(fCount);
-  Move(fProperties[aIndex+1],fProperties[aIndex],fCount*SizeOf(TPasJSONItemObjectProperty));
+  if aIndex<fCount then begin
+   Move(fProperties[aIndex+1],fProperties[aIndex],(fCount-aIndex)*SizeOf(TPasJSONItemObjectProperty));
+  end;
+  fProperties[fCount]:=nil;
  end;
 end;
 
@@ -1241,7 +1244,10 @@ begin
  if (aIndex>=0) and (aIndex<fCount) then begin
   FreeAndNil(fItems[aIndex]);
   dec(fCount);
-  Move(fItems[aIndex+1],fItems[aIndex],fCount*SizeOf(TPasJSONItem));
+  if aIndex<fCount then begin
+   Move(fItems[aIndex+1],fItems[aIndex],(fCount-aIndex)*SizeOf(TPasJSONItem));
+  end;
+  fItems[fCount]:=nil;
  end;
 end;
 
@@ -1269,6 +1275,24 @@ class function TPasJSON.StringQuote(const aString:TPasJSONUTF8String):TPasJSONRa
 var i,l:TPasJSONInt32;
     c,t:TPasJSONUInt32;
 begin
+
+ // A string of chars that stand for themselves alone quoted as a whole, rather than char by char
+ l:=length(aString);
+ i:=1;
+ while (i<=l) and (aString[i] in [#$20,#$21,#$23..#$5b,#$5d..#$7d]) do begin
+  inc(i);
+ end;
+ if i>l then begin
+  result:='';
+  SetLength(result,l+2);
+  result[1]:='"';
+  if l>0 then begin
+   Move(aString[1],result[2],l);
+  end;
+  result[l+2]:='"';
+  exit;
+ end;
+
  result:='"';
  i:=1;
  l:=length(aString);
@@ -1464,11 +1488,49 @@ var Position:TPasJSONInt32;
    JSONError;
   end;
  end;
+ // Where the string that begins at the current char ends, its closing quote, where it is of printable
+ // ASCII chars alone without escapes and the source is read byte by byte; nought where it is not, and
+ // it is to be read char by char
+ function FastStringEnd:TPasJSONInt32;
+ begin
+  result:=0;
+  if IsChar('"') and (Encoding in [TPasJSONEncoding.Latin1,TPasJSONEncoding.UTF8]) then begin
+   result:=Position;
+   while result<=length(aSource) do begin
+    case byte(AnsiChar(aSource[result])) of
+     $20,$21,$23..$5b,$5d..$7e:begin
+      inc(result);
+     end;
+     else begin
+      break;
+     end;
+    end;
+   end;
+   if not ((result<=length(aSource)) and (aSource[result]='"')) then begin
+    result:=0;
+   end;
+  end;
+ end;
+ // The string from the current char up to aEnd (FastStringEnd) as it stands, the char after the closing
+ // quote and the white after it read as reading the string char by char would have
+ procedure TakeFastString(const aEnd:TPasJSONInt32;out aValue:TPasJSONUTF8String);
+ begin
+  aValue:='';
+  SetLength(aValue,aEnd-Position);
+  if aEnd>Position then begin
+   Move(aSource[Position],aValue[1],aEnd-Position);
+  end;
+  Position:=aEnd+1;
+  NextChar;
+  SkipWhite;
+ end;
  function ParseValue(const ImplicitRootObject:boolean):TPasJSONItem;
   function ParseString:TPasJSONItem;
   var w:TPasJSONUTF16String; // <= because of easy correct handling of UTF16 surrogates (see ECMAScript and JSON specs)
       wl:TPasJSONInt32;
       wc:TPasJSONUInt32;
+      FastEnd:TPasJSONInt32;
+      FastValue:TPasJSONUTF8String;
    procedure AddChar16(c:TPasJSONUInt32);
    var cl:TPasJSONInt32;
    begin
@@ -1529,62 +1591,92 @@ var Position:TPasJSONInt32;
     end;
    end;
   begin
+   // No exception frames of its own: the item is made only after the last thing that can fail, so that
+   // nothing is left to free when something does
    result:=nil;
    w:='';
-   try
-    try
-     SetLength(w,512);
-     wl:=0;
-     if IsChar('"') then begin
-      NextChar;
-      while not (CharEOF or IsChar('"')) do begin
+
+   // A string of printable ASCII chars alone, without escapes, taken over as it stands: the same as
+   // read char by char, without the way through UTF-16 for each of them
+   FastEnd:=FastStringEnd;
+   if FastEnd>0 then begin
+    TakeFastString(FastEnd,FastValue);
+    result:=TPasJSONItemString.Create(FastValue);
+    exit;
+   end;
+
+   SetLength(w,512);
+   wl:=0;
+   if IsChar('"') then begin
+    NextChar;
+    while not (CharEOF or IsChar('"')) do begin
+     case CurrentChar of
+      $0000..$001f:begin
+       if TPasJSONModeFlag.MultiLineStrings in aModeFlags then begin
+        AddChar(CurrentChar);
+        NextChar;
+       end else begin
+        JSONError;
+       end;
+      end;
+      ord('\'):begin
+       NextChar;
        case CurrentChar of
-        $0000..$001f:begin
-         if TPasJSONModeFlag.MultiLineStrings in aModeFlags then begin
-          AddChar(CurrentChar);
-          NextChar;
-         end else begin
-          JSONError;
-         end;
-        end;
-        ord('\'):begin
+        ord('"'),ord('\'),ord('/'):begin
+         AddChar(CurrentChar);
          NextChar;
-         case CurrentChar of
-          ord('"'),ord('\'),ord('/'):begin
-           AddChar(CurrentChar);
-           NextChar;
+        end;
+        ord('b'):begin
+         AddChar($0008);
+         NextChar;
+        end;
+        ord('f'):begin
+         AddChar($000c);
+         NextChar;
+        end;
+        ord('n'):begin
+         AddChar($000a);
+         NextChar;
+        end;
+        ord('r'):begin
+         AddChar($000d);
+         NextChar;
+        end;
+        ord('t'):begin
+         AddChar($0009);
+         NextChar;
+        end;
+        ord('u'):begin
+         NextChar;
+         if (((CurrentChar>=ord('0')) and (CurrentChar<=ord('9'))) or ((CurrentChar>=ord('a')) and (CurrentChar<=ord('f'))) or ((CurrentChar>=ord('A')) and (CurrentChar<=ord('F')))) and not CharEOF then begin
+          if (CurrentChar>=ord('0')) and (CurrentChar<=ord('9')) then begin
+           wc:=UInt16(CurrentChar)-ord('0');
+          end else if (CurrentChar>=ord('a')) and (CurrentChar<=ord('f')) then begin
+           wc:=(UInt16(CurrentChar)-ord('a'))+$a;
+          end else if (CurrentChar>=ord('A')) and (CurrentChar<=ord('F')) then begin
+           wc:=(UInt16(CurrentChar)-ord('A'))+$a;
+          end else begin
+           wc:=0;
           end;
-          ord('b'):begin
-           AddChar($0008);
-           NextChar;
-          end;
-          ord('f'):begin
-           AddChar($000c);
-           NextChar;
-          end;
-          ord('n'):begin
-           AddChar($000a);
-           NextChar;
-          end;
-          ord('r'):begin
-           AddChar($000d);
-           NextChar;
-          end;
-          ord('t'):begin
-           AddChar($0009);
-           NextChar;
-          end;
-          ord('u'):begin
+          wc:=wc shl 4;
+          NextChar;
+          if (((CurrentChar>=ord('0')) and (CurrentChar<=ord('9'))) or ((CurrentChar>=ord('a')) and (CurrentChar<=ord('f'))) or ((CurrentChar>=ord('A')) and (CurrentChar<=ord('F')))) and not CharEOF then begin
+           if (CurrentChar>=ord('0')) and (CurrentChar<=ord('9')) then begin
+            wc:=wc or UInt16(UInt16(CurrentChar)-ord('0'));
+           end else if (CurrentChar>=ord('a')) and (CurrentChar<=ord('f')) then begin
+            wc:=wc or UInt16((UInt16(CurrentChar)-ord('a'))+$a);
+           end else if (CurrentChar>=ord('A')) and (CurrentChar<=ord('F')) then begin
+            wc:=wc or UInt16((UInt16(CurrentChar)-ord('A'))+$a);
+           end;
+           wc:=wc shl 4;
            NextChar;
            if (((CurrentChar>=ord('0')) and (CurrentChar<=ord('9'))) or ((CurrentChar>=ord('a')) and (CurrentChar<=ord('f'))) or ((CurrentChar>=ord('A')) and (CurrentChar<=ord('F')))) and not CharEOF then begin
             if (CurrentChar>=ord('0')) and (CurrentChar<=ord('9')) then begin
-             wc:=UInt16(CurrentChar)-ord('0');
+             wc:=wc or UInt16(UInt16(CurrentChar)-ord('0'));
             end else if (CurrentChar>=ord('a')) and (CurrentChar<=ord('f')) then begin
-             wc:=(UInt16(CurrentChar)-ord('a'))+$a;
+             wc:=wc or UInt16((UInt16(CurrentChar)-ord('a'))+$a);
             end else if (CurrentChar>=ord('A')) and (CurrentChar<=ord('F')) then begin
-             wc:=(UInt16(CurrentChar)-ord('A'))+$a;
-            end else begin
-             wc:=0;
+             wc:=wc or UInt16((UInt16(CurrentChar)-ord('A'))+$a);
             end;
             wc:=wc shl 4;
             NextChar;
@@ -1596,214 +1688,267 @@ var Position:TPasJSONInt32;
              end else if (CurrentChar>=ord('A')) and (CurrentChar<=ord('F')) then begin
               wc:=wc or UInt16((UInt16(CurrentChar)-ord('A'))+$a);
              end;
-             wc:=wc shl 4;
+             AddChar16(wc);
              NextChar;
-             if (((CurrentChar>=ord('0')) and (CurrentChar<=ord('9'))) or ((CurrentChar>=ord('a')) and (CurrentChar<=ord('f'))) or ((CurrentChar>=ord('A')) and (CurrentChar<=ord('F')))) and not CharEOF then begin
-              if (CurrentChar>=ord('0')) and (CurrentChar<=ord('9')) then begin
-               wc:=wc or UInt16(UInt16(CurrentChar)-ord('0'));
-              end else if (CurrentChar>=ord('a')) and (CurrentChar<=ord('f')) then begin
-               wc:=wc or UInt16((UInt16(CurrentChar)-ord('a'))+$a);
-              end else if (CurrentChar>=ord('A')) and (CurrentChar<=ord('F')) then begin
-               wc:=wc or UInt16((UInt16(CurrentChar)-ord('A'))+$a);
-              end;
-              wc:=wc shl 4;
-              NextChar;
-              if (((CurrentChar>=ord('0')) and (CurrentChar<=ord('9'))) or ((CurrentChar>=ord('a')) and (CurrentChar<=ord('f'))) or ((CurrentChar>=ord('A')) and (CurrentChar<=ord('F')))) and not CharEOF then begin
-               if (CurrentChar>=ord('0')) and (CurrentChar<=ord('9')) then begin
-                wc:=wc or UInt16(UInt16(CurrentChar)-ord('0'));
-               end else if (CurrentChar>=ord('a')) and (CurrentChar<=ord('f')) then begin
-                wc:=wc or UInt16((UInt16(CurrentChar)-ord('a'))+$a);
-               end else if (CurrentChar>=ord('A')) and (CurrentChar<=ord('F')) then begin
-                wc:=wc or UInt16((UInt16(CurrentChar)-ord('A'))+$a);
-               end;
-               AddChar16(wc);
-               NextChar;
-              end else begin
-               JSONError;
-              end;
-             end else begin
-              JSONError;
-             end;
             end else begin
              JSONError;
             end;
            end else begin
             JSONError;
            end;
-          end;
-          else begin
+          end else begin
            JSONError;
           end;
-         end;
-        end;
-        else begin
-         AddChar(CurrentChar);
-         NextChar;
-        end;
-       end;
-      end;
-      ExpectChar('"');
-      SetLength(w,wl);
-      result:=TPasJSONItemString.Create(ConvertUTF16ToUTF8(w));
-     end else begin
-      JSONError;
-     end;
-     SkipWhite;
-    except
-     FreeAndNil(result);
-     raise;
-    end;
-   finally
-    w:='';
-   end;
-  end;
-  function ParseNumber:TPasJSONItem;
-  var s:TPasJSONRawByteString;
-      OK:TPasDblStrUtilsBoolean;
-      Value:TPasJSONDouble;
-      IsHexadecimal:boolean;
-  begin
-   result:=nil;
-   s:='';
-   try
-    try
-     if CharEOF then begin
-      JSONError;
-     end;
-     case CurrentChar of
-      ord('-'),ord('0')..ord('9'):begin
-       if IsChar('-') then begin
-        s:=s+ansichar(byte(CurrentChar));
-        NextChar;
-        if CharEOF or not ((CurrentChar>=ord('0')) and (CurrentChar<=ord('9'))) then begin
-         JSONError;
-        end;
-       end;
-       IsHexadecimal:=false;
-       if (not CharEOF) and (CurrentChar=ord('0')) then begin
-        s:=s+ansichar(byte(CurrentChar));
-        NextChar;
-        if (TPasJSONModeFlag.HexadecimalNumbers in aModeFlags) and
-           ((not CharEOF) and (CurrentChar in [ord('x'),ord('X')])) then begin
-         s:=s+ansichar(byte(CurrentChar));
-         NextChar;
-         while (not CharEOF) and
-               (((CurrentChar>=ord('0')) and (CurrentChar<=ord('9'))) or
-                ((CurrentChar>=ord('a')) and (CurrentChar<=ord('f'))) or
-                ((CurrentChar>=ord('A')) and (CurrentChar<=ord('F')))) do begin
-          s:=s+ansichar(byte(CurrentChar));
-          NextChar;
-         end;
-         IsHexadecimal:=true;
-        end else begin
-         if (not CharEOF) and ((CurrentChar>=ord('0')) and (CurrentChar<=ord('9'))) then begin
+         end else begin
           JSONError;
          end;
         end;
-       end else begin
-        while (not CharEOF) and ((CurrentChar>=ord('0')) and (CurrentChar<=ord('9'))) do begin
-         s:=s+ansichar(byte(CurrentChar));
-         NextChar;
-        end;
-       end;
-       if IsChar('.') then begin
-        s:=s+ansichar(byte(CurrentChar));
-        NextChar;
-        if CharEOF or not (((CurrentChar>=ord('0')) and (CurrentChar<=ord('9'))) or
-                           (IsHexadecimal and
-                            (((CurrentChar>=ord('a')) and (CurrentChar<=ord('f'))) or
-                             ((CurrentChar>=ord('A')) and (CurrentChar<=ord('F')))))) then begin
+        else begin
          JSONError;
         end;
-        while (not CharEOF) and (((CurrentChar>=ord('0')) and (CurrentChar<=ord('9'))) or
-                                  (IsHexadecimal and
-                                   (((CurrentChar>=ord('a')) and (CurrentChar<=ord('f'))) or
-                                    ((CurrentChar>=ord('A')) and (CurrentChar<=ord('F')))))) do begin
-         s:=s+ansichar(byte(CurrentChar));
-         NextChar;
-        end;
        end;
-       if (not CharEOF) and ((CurrentChar=ord('e')) or (CurrentChar=ord('E'))) then begin
-        s:=s+ansichar(byte(CurrentChar));
-        NextChar;
-        if (not CharEOF) and ((CurrentChar=ord('-')) or (CurrentChar=ord('+'))) then begin
-         s:=s+ansichar(byte(CurrentChar));
-         NextChar;
-        end;
-        if CharEOF or not ((CurrentChar>=ord('0')) and (CurrentChar<=ord('9'))) then begin
-         JSONError;
-        end;
-        while (not CharEOF) and ((CurrentChar>=ord('0')) and (CurrentChar<=ord('9'))) do begin
-         s:=s+ansichar(byte(CurrentChar));
-         NextChar;
-        end;
-       end;
-      end else begin
-       JSONError;
+      end;
+      else begin
+       AddChar(CurrentChar);
+       NextChar;
       end;
      end;
-     if length(s)>0 then begin
-      OK:=false;
-      Value:=ConvertStringToDouble(s,rmNearest,@OK);
-      if not OK then begin
-       JSONError;
-      end;
-      result:=TPasJSONItemNumber.Create(Value);
-     end;
-    except
-     FreeAndNil(result);
-     raise;
     end;
-   finally
-    s:='';
+    ExpectChar('"');
+    SetLength(w,wl);
+    SkipWhite;
+    result:=TPasJSONItemString.Create(ConvertUTF16ToUTF8(w));
+   end else begin
+    JSONError;
    end;
+  end;
+  function ParseNumberByChars:TPasJSONItem;
+  var s:TPasJSONRawByteString;
+      sl:TPasJSONInt32;
+      OK:TPasDblStrUtilsBoolean;
+      Value:TPasJSONDouble;
+      IsHexadecimal:boolean;
+   // The current char appended to s, which grows by doubling rather than by one char each time
+   procedure AppendChar;
+   begin
+    inc(sl);
+    if sl>length(s) then begin
+     SetLength(s,sl shl 1);
+    end;
+    s[sl]:=ansichar(byte(CurrentChar));
+   end;
+  begin
+   // No exception frames of its own: the item is made as the very last thing
+   result:=nil;
+   s:='';
+   sl:=0;
+   if CharEOF then begin
+    JSONError;
+   end;
+   case CurrentChar of
+    ord('-'),ord('0')..ord('9'):begin
+     if IsChar('-') then begin
+      AppendChar;
+      NextChar;
+      if CharEOF or not ((CurrentChar>=ord('0')) and (CurrentChar<=ord('9'))) then begin
+       JSONError;
+      end;
+     end;
+     IsHexadecimal:=false;
+     if (not CharEOF) and (CurrentChar=ord('0')) then begin
+      AppendChar;
+      NextChar;
+      if (TPasJSONModeFlag.HexadecimalNumbers in aModeFlags) and
+         ((not CharEOF) and (CurrentChar in [ord('x'),ord('X')])) then begin
+       AppendChar;
+       NextChar;
+       while (not CharEOF) and
+             (((CurrentChar>=ord('0')) and (CurrentChar<=ord('9'))) or
+              ((CurrentChar>=ord('a')) and (CurrentChar<=ord('f'))) or
+              ((CurrentChar>=ord('A')) and (CurrentChar<=ord('F')))) do begin
+        AppendChar;
+        NextChar;
+       end;
+       IsHexadecimal:=true;
+      end else begin
+       if (not CharEOF) and ((CurrentChar>=ord('0')) and (CurrentChar<=ord('9'))) then begin
+        JSONError;
+       end;
+      end;
+     end else begin
+      while (not CharEOF) and ((CurrentChar>=ord('0')) and (CurrentChar<=ord('9'))) do begin
+       AppendChar;
+       NextChar;
+      end;
+     end;
+     if IsChar('.') then begin
+      AppendChar;
+      NextChar;
+      if CharEOF or not (((CurrentChar>=ord('0')) and (CurrentChar<=ord('9'))) or
+                         (IsHexadecimal and
+                          (((CurrentChar>=ord('a')) and (CurrentChar<=ord('f'))) or
+                           ((CurrentChar>=ord('A')) and (CurrentChar<=ord('F')))))) then begin
+       JSONError;
+      end;
+      while (not CharEOF) and (((CurrentChar>=ord('0')) and (CurrentChar<=ord('9'))) or
+                                (IsHexadecimal and
+                                 (((CurrentChar>=ord('a')) and (CurrentChar<=ord('f'))) or
+                                  ((CurrentChar>=ord('A')) and (CurrentChar<=ord('F')))))) do begin
+       AppendChar;
+       NextChar;
+      end;
+     end;
+     if (not CharEOF) and ((CurrentChar=ord('e')) or (CurrentChar=ord('E'))) then begin
+      AppendChar;
+      NextChar;
+      if (not CharEOF) and ((CurrentChar=ord('-')) or (CurrentChar=ord('+'))) then begin
+       AppendChar;
+       NextChar;
+      end;
+      if CharEOF or not ((CurrentChar>=ord('0')) and (CurrentChar<=ord('9'))) then begin
+       JSONError;
+      end;
+      while (not CharEOF) and ((CurrentChar>=ord('0')) and (CurrentChar<=ord('9'))) do begin
+       AppendChar;
+       NextChar;
+      end;
+     end;
+    end else begin
+     JSONError;
+    end;
+   end;
+   SetLength(s,sl);
+   if length(s)>0 then begin
+    OK:=false;
+    Value:=ConvertStringToDouble(s,rmNearest,@OK);
+    if not OK then begin
+     JSONError;
+    end;
+    result:=TPasJSONItemNumber.Create(Value);
+   end;
+  end;
+  // A well-formed decimal number read straight from the source, where it is read byte by byte: the
+  // same as read char by char, without a string made of it and without an exception frame; anything
+  // else, and every error, read char by char
+  function ParseNumber:TPasJSONItem;
+  var FastStart,FastEnd:TPasJSONInt32;
+      Fast:boolean;
+      OK:TPasDblStrUtilsBoolean;
+      Value:TPasJSONDouble;
+   function IsDigitAt(const aAt:TPasJSONInt32):boolean;
+   begin
+    result:=(aAt<=length(aSource)) and (aSource[aAt] in ['0'..'9']);
+   end;
+  begin
+   if (Encoding in [TPasJSONEncoding.Latin1,TPasJSONEncoding.UTF8]) and not CharEOF then begin
+    FastStart:=Position-1;
+    FastEnd:=FastStart;
+    Fast:=true;
+
+    // The sign and the whole part: a nought alone, or digits that do not begin with one
+    if (FastEnd<=length(aSource)) and (aSource[FastEnd]='-') then begin
+     inc(FastEnd);
+    end;
+    if (FastEnd<=length(aSource)) and (aSource[FastEnd]='0') then begin
+     inc(FastEnd);
+     if IsDigitAt(FastEnd) or
+        ((TPasJSONModeFlag.HexadecimalNumbers in aModeFlags) and (FastEnd<=length(aSource)) and (aSource[FastEnd] in ['x','X'])) then begin
+      Fast:=false;
+     end;
+    end else if IsDigitAt(FastEnd) then begin
+     while IsDigitAt(FastEnd) do begin
+      inc(FastEnd);
+     end;
+    end else begin
+     Fast:=false;
+    end;
+
+    // The fraction
+    if Fast and (FastEnd<=length(aSource)) and (aSource[FastEnd]='.') then begin
+     inc(FastEnd);
+     if IsDigitAt(FastEnd) then begin
+      while IsDigitAt(FastEnd) do begin
+       inc(FastEnd);
+      end;
+     end else begin
+      Fast:=false;
+     end;
+    end;
+
+    // The exponent
+    if Fast and (FastEnd<=length(aSource)) and (aSource[FastEnd] in ['e','E']) then begin
+     inc(FastEnd);
+     if (FastEnd<=length(aSource)) and (aSource[FastEnd] in ['-','+']) then begin
+      inc(FastEnd);
+     end;
+     if IsDigitAt(FastEnd) then begin
+      while IsDigitAt(FastEnd) do begin
+       inc(FastEnd);
+      end;
+     end else begin
+      Fast:=false;
+     end;
+    end;
+
+    if Fast then begin
+     OK:=false;
+     Value:=ConvertStringToDouble(PPasDblStrUtilsChar(@aSource[FastStart]),FastEnd-FastStart,rmNearest,@OK);
+     if OK then begin
+      Position:=FastEnd;
+      NextChar;
+      result:=TPasJSONItemNumber.Create(Value);
+      exit;
+     end;
+    end;
+   end;
+   result:=ParseNumberByChars;
   end;
   procedure ParseObjectProperty(DestinationObject:TPasJSONItemObject);
   var Key:TPasJSONUTF8String;
       Value:TPasJSONItem;
+      FastEnd:TPasJSONInt32;
   begin
-   result:=nil;
-   try
-    if (TPasJSONModeFlag.UnquotedKeys in aModeFlags) and
-       (not CharEOF) and
-       ((CurrentChar=UInt16(TPasJSONUTF16Char('_'))) or
-        ((CurrentChar>=UInt16(TPasJSONUTF16Char('a'))) and (CurrentChar<=UInt16(TPasJSONUTF16Char('z')))) or
-        ((CurrentChar>=UInt16(TPasJSONUTF16Char('A'))) and (CurrentChar<=UInt16(TPasJSONUTF16Char('Z')))) or
-        ((CurrentChar>=UInt16(TPasJSONUTF16Char('0'))) and (CurrentChar<=UInt16(TPasJSONUTF16Char('9'))))) then begin
-     Key:=TPasJSONUTF8String(AnsiChar(byte(CurrentChar)));
+   // No exception frame of its own: the value is in the object as soon as it is made. A key of
+   // printable ASCII chars alone taken over as it stands, without an item made for it first
+   FastEnd:=FastStringEnd;
+   if FastEnd>0 then begin
+    TakeFastString(FastEnd,Key);
+   end else if (TPasJSONModeFlag.UnquotedKeys in aModeFlags) and
+      (not CharEOF) and
+      ((CurrentChar=UInt16(TPasJSONUTF16Char('_'))) or
+       ((CurrentChar>=UInt16(TPasJSONUTF16Char('a'))) and (CurrentChar<=UInt16(TPasJSONUTF16Char('z')))) or
+       ((CurrentChar>=UInt16(TPasJSONUTF16Char('A'))) and (CurrentChar<=UInt16(TPasJSONUTF16Char('Z')))) or
+       ((CurrentChar>=UInt16(TPasJSONUTF16Char('0'))) and (CurrentChar<=UInt16(TPasJSONUTF16Char('9'))))) then begin
+    Key:=TPasJSONUTF8String(AnsiChar(byte(CurrentChar)));
+    NextChar;
+    while ((CurrentChar=UInt16(TPasJSONUTF16Char('_'))) or
+       ((CurrentChar>=UInt16(TPasJSONUTF16Char('a'))) and (CurrentChar<=UInt16(TPasJSONUTF16Char('z')))) or
+       ((CurrentChar>=UInt16(TPasJSONUTF16Char('A'))) and (CurrentChar<=UInt16(TPasJSONUTF16Char('Z')))) or
+       ((CurrentChar>=UInt16(TPasJSONUTF16Char('0'))) and (CurrentChar<=UInt16(TPasJSONUTF16Char('9'))))) do begin
+     Key:=Key+TPasJSONUTF8String(AnsiChar(byte(CurrentChar)));
      NextChar;
-     while ((CurrentChar=UInt16(TPasJSONUTF16Char('_'))) or
-        ((CurrentChar>=UInt16(TPasJSONUTF16Char('a'))) and (CurrentChar<=UInt16(TPasJSONUTF16Char('z')))) or
-        ((CurrentChar>=UInt16(TPasJSONUTF16Char('A'))) and (CurrentChar<=UInt16(TPasJSONUTF16Char('Z')))) or
-        ((CurrentChar>=UInt16(TPasJSONUTF16Char('0'))) and (CurrentChar<=UInt16(TPasJSONUTF16Char('9'))))) do begin
-      Key:=Key+TPasJSONUTF8String(AnsiChar(byte(CurrentChar)));
-      NextChar;
-     end;
-     SkipWhite;
-    end else begin
-     Value:=ParseString;
-     if assigned(Value) and (Value is TPasJSONItemString) then begin
-      Key:=TPasJSONItemString(Value).Value;
-      FreeAndNil(Value);
-     end else begin
-      FreeAndNil(Value);
-      JSONError;
-      Key:='';
-     end;
     end;
     SkipWhite;
-    if TPasJSONModeFlag.EqualsForColon in aModeFlags then begin
-     ExpectChar('=');
+   end else begin
+    Value:=ParseString;
+    if assigned(Value) and (Value is TPasJSONItemString) then begin
+     Key:=TPasJSONItemString(Value).Value;
+     FreeAndNil(Value);
     end else begin
-     ExpectChar(':');
+     FreeAndNil(Value);
+     JSONError;
+     Key:='';
     end;
-    SkipWhite;
-    Value:=ParseValue(false);
-    DestinationObject.Add(Key,Value);
-   except
-    FreeAndNil(result);
-    raise;
    end;
+   SkipWhite;
+   if TPasJSONModeFlag.EqualsForColon in aModeFlags then begin
+    ExpectChar('=');
+   end else begin
+    ExpectChar(':');
+   end;
+   SkipWhite;
+   Value:=ParseValue(false);
+   DestinationObject.Add(Key,Value);
   end;
   function ParseObject(const ImplicitRootObject:boolean):TPasJSONItem;
   begin
@@ -1867,48 +2012,45 @@ var Position:TPasJSONInt32;
    end;
   end;
  begin
+  // No exception frame of its own: each item is made as the last thing its part of the parser does,
+  // and an object or an array frees what it holds already where something fails within it
   result:=nil;
-  try
-   SkipWhite;
-   if CharEOF then begin
-    JSONError;
-   end;
-   if ImplicitRootObject then begin
-    result:=ParseObject(true);
-   end else begin
-    case CurrentChar of
-     ord('{'):begin
-      result:=ParseObject(false);
-     end;
-     ord('['):begin
-      result:=ParseArray;
-     end;
-     ord('"'):begin
-      result:=ParseString;
-     end;
-     ord('-'),ord('0')..ord('9'):begin
-      result:=ParseNumber;
-     end;
-     ord('t'):begin
-      ExpectKeyword('true');
-      result:=TPasJSONItemBoolean.Create(true);
-     end;
-     ord('f'):begin
-      ExpectKeyword('false');
-      result:=TPasJSONItemBoolean.Create(false);
-     end;
-     ord('n'):begin
-      ExpectKeyword('null');
-      result:=TPasJSONItemNull.Create;
-     end;
-     else begin
-      JSONError;
-     end;
+  SkipWhite;
+  if CharEOF then begin
+   JSONError;
+  end;
+  if ImplicitRootObject then begin
+   result:=ParseObject(true);
+  end else begin
+   case CurrentChar of
+    ord('{'):begin
+     result:=ParseObject(false);
+    end;
+    ord('['):begin
+     result:=ParseArray;
+    end;
+    ord('"'):begin
+     result:=ParseString;
+    end;
+    ord('-'),ord('0')..ord('9'):begin
+     result:=ParseNumber;
+    end;
+    ord('t'):begin
+     ExpectKeyword('true');
+     result:=TPasJSONItemBoolean.Create(true);
+    end;
+    ord('f'):begin
+     ExpectKeyword('false');
+     result:=TPasJSONItemBoolean.Create(false);
+    end;
+    ord('n'):begin
+     ExpectKeyword('null');
+     result:=TPasJSONItemNull.Create;
+    end;
+    else begin
+     JSONError;
     end;
    end;
-  except
-   FreeAndNil(result);
-   raise;
   end;
  end;
 begin
